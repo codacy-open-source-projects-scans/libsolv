@@ -139,6 +139,7 @@ static struct solverflags2str {
   { SOLVER_FLAG_INSTALL_ALSO_UPDATES,       "installalsoupdates", 0 },
   { SOLVER_FLAG_ONLY_NAMESPACE_RECOMMENDED, "onlynamespacerecommended", 0 },
   { SOLVER_FLAG_STRICT_REPO_PRIORITY,       "strictrepopriority", 0 },
+  { SOLVER_FLAG_FOCUS_NEW,                  "focusnew", 0 },
   { 0, 0, 0 }
 };
 
@@ -1255,7 +1256,7 @@ static int
 dump_genid(Pool *pool, Strqueue *sq, Id id, int cnt)
 {
   struct oplist *op;
-  char cntbuf[20];
+  char cntbuf[26];
   const char *s;
 
   if (ISRELDEP(id))
