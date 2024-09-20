@@ -119,6 +119,9 @@
 /* rpm4 tags */
 #define TAG_LONGFILESIZES	5008
 #define TAG_LONGSIZE		5009
+#define TAG_ORDERNAME		5035
+#define TAG_ORDERVERSION	5036
+#define TAG_ORDERFLAGS		5037
 #define TAG_RECOMMENDNAME	5046
 #define TAG_RECOMMENDVERSION	5047
 #define TAG_RECOMMENDFLAGS	5048
@@ -521,6 +524,30 @@ static char *headtoevr(RpmHead *h)
   return evr;
 }
 
+static const char *headtoarch_nodup(RpmHead *h)
+{
+  const char *arch;
+  if (!headstring(h, TAG_SOURCERPM) && (headexists(h, TAG_SOURCEPACKAGE) || headissourceheuristic(h)))
+    return headexists(h, TAG_NOSOURCE) || headexists(h, TAG_NOPATCH) ? "nosrc" : "src";
+  arch = headstring(h, TAG_ARCH);
+  return arch ? arch : "noarch";
+}
+
+static char *headtocanon(RpmHead *h)
+{
+  const char *name, *arch;
+  char *evr, *r;
+
+  name = headstring(h, TAG_NAME);
+  if (!name)
+    name = "";
+  arch = headtoarch_nodup(h);
+  evr = headtoevr(h);
+  r = solv_malloc(strlen(name) + 1 + strlen(evr ? evr : "") + 1 + strlen(arch) + 1);
+  sprintf(r, "%s-%s.%s", name, evr ? evr : "", arch);
+  solv_free(evr);
+  return r;
+}
 
 static void
 setutf8string(Repodata *repodata, Id handle, Id tag, const char *str)
@@ -601,7 +628,7 @@ makedeps(Pool *pool, Repo *repo, RpmHead *rpmhead, int tagn, int tagv, int tagf,
   f = headint32array(rpmhead, tagf, &fc);
   if (!v || !f || nc != vc || nc != fc)
     {
-      char *pkgname = rpm_query(rpmhead, 0);
+      char *pkgname = headtocanon(rpmhead);
       pool_error(pool, 0, "bad dependency entries for %s: %d %d %d", pkgname ? pkgname : "<NULL>", nc, vc, fc);
       solv_free(pkgname);
       solv_free(n);
@@ -647,8 +674,17 @@ makedeps(Pool *pool, Repo *repo, RpmHead *rpmhead, int tagn, int tagv, int tagf,
       return 0;
     }
   cc += haspre;		/* add slot for the prereq marker */
-  olddeps = repo_reserve_ids(repo, 0, cc);
-  ida = repo->idarraydata + olddeps;
+  if (repo)
+    {
+      olddeps = repo_reserve_ids(repo, 0, cc);
+      ida = repo->idarraydata + olddeps;
+    }
+  else
+    {
+      olddeps = 0;
+      queue_prealloc(ignq, cc);
+      ida = ignq->elements + ignq->count;
+    }
 
   has_ign = 0;
   for (i = 0; ; i++)
@@ -706,19 +742,27 @@ makedeps(Pool *pool, Repo *repo, RpmHead *rpmhead, int tagn, int tagv, int tagf,
 	    }
 	}
       *ida++ = id;
-      if (haspre == 2 && ignq)
+      if (haspre == 2 && ignq && repo)
 	{
 	  int is_ign = (f[i] & DEP_PRE_IN) != 0 && (f[i] & DEP_PRE_UN) == 0 ? 1 : 0;
 	  has_ign |= is_ign;
 	  queue_push2(ignq, id, is_ign);
 	}
     }
-  *ida++ = 0;
-  repo->idarraysize += cc + 1;
+  if (repo)
+    {
+      *ida++ = 0;
+      repo->idarraysize += cc + 1;
+    }
+  else
+    {
+      ignq->count += cc;
+      ignq->left -= cc;
+    }
   solv_free(n);
   solv_free(v);
   solv_free(f);
-  if (ignq && ignq->count)
+  if (ignq && ignq->count && repo)
     {
       int j = 0;
       if (has_ign && ignq->count == 2)
@@ -1142,6 +1186,13 @@ rpmhead2solv(Pool *pool, Repo *repo, Repodata *data, Solvable *s, RpmHead *rpmhe
 
   if (data && ignq.count)
     repodata_set_idarray(data, s - pool->solvables, SOLVABLE_PREREQ_IGNOREINST, &ignq);
+  if (data && flags && RPM_ADD_WITH_ORDERWITHREQUIRES)
+    {
+      queue_empty(&ignq);
+      makedeps(pool, NULL, rpmhead, TAG_ORDERNAME, TAG_ORDERVERSION, TAG_ORDERFLAGS, 0, &ignq);
+      if (ignq.count)
+        repodata_set_idarray(data, s - pool->solvables, SOLVABLE_ORDERWITHREQUIRES, &ignq);
+    }
   queue_free(&ignq);
 
   if (data)
@@ -1894,6 +1945,7 @@ repo_add_rpm(Repo *repo, const char *rpm, int flags)
   Chksum *chksumh = 0;
   Chksum *leadsigchksumh = 0;
 
+  flags |= RPM_ADD_WITH_ORDERWITHREQUIRES;
   data = repo_add_repodata(repo, flags);
 
   if ((flags & RPM_ADD_WITH_SHA256SUM) != 0)
@@ -2125,6 +2177,7 @@ repo_add_rpm_handle(Repo *repo, void *rpmhandle, int flags)
   Solvable *s;
   char *payloadformat;
 
+  flags |= RPM_ADD_WITH_ORDERWITHREQUIRES;
   data = repo_add_repodata(repo, flags);
   if (headexists(rpmhead, TAG_PATCHESNAME))
     {
@@ -2327,53 +2380,28 @@ rpm_iterate_filelist(void *rpmhandle, int flags, void (*cb)(void *, const char *
 char *
 rpm_query(void *rpmhandle, Id what)
 {
-  const char *name, *arch, *sourcerpm;
-  char *evr, *r;
-  int l;
-
   RpmHead *rpmhead = rpmhandle;
-  r = 0;
+  int tag = 0;
+
   switch (what)
     {
     case 0:	/* return canonical name of rpm */
-      name = headstring(rpmhead, TAG_NAME);
-      if (!name)
-	name = "";
-      sourcerpm = headstring(rpmhead, TAG_SOURCERPM);
-      if (sourcerpm || !(headexists(rpmhead, TAG_SOURCEPACKAGE) || headissourceheuristic(rpmhead)))
-	arch = headstring(rpmhead, TAG_ARCH);
-      else
-	{
-	  if (headexists(rpmhead, TAG_NOSOURCE) || headexists(rpmhead, TAG_NOPATCH))
-	    arch = "nosrc";
-	  else
-	    arch = "src";
-	}
-      if (!arch)
-	arch = "noarch";
-      evr = headtoevr(rpmhead);
-      l = strlen(name) + 1 + strlen(evr ? evr : "") + 1 + strlen(arch) + 1;
-      r = solv_malloc(l);
-      sprintf(r, "%s-%s.%s", name, evr ? evr : "", arch);
-      solv_free(evr);
-      break;
+      return headtocanon(rpmhead);
     case SOLVABLE_NAME:
-      name = headstring(rpmhead, TAG_NAME);
-      r = solv_strdup(name);
+      tag = TAG_NAME;
       break;
+    case SOLVABLE_ARCH:
+      return solv_strdup(headtoarch_nodup(rpmhead));
+    case SOLVABLE_EVR:
+      return headtoevr(rpmhead);
     case SOLVABLE_SUMMARY:
-      name = headstring(rpmhead, TAG_SUMMARY);
-      r = solv_strdup(name);
+      tag = TAG_SUMMARY;
       break;
     case SOLVABLE_DESCRIPTION:
-      name = headstring(rpmhead, TAG_DESCRIPTION);
-      r = solv_strdup(name);
-      break;
-    case SOLVABLE_EVR:
-      r = headtoevr(rpmhead);
+      tag = TAG_DESCRIPTION;
       break;
     }
-  return r;
+  return tag ? solv_strdup(headstring(rpmhead, tag)) : 0;
 }
 
 unsigned long long
@@ -2381,15 +2409,48 @@ rpm_query_num(void *rpmhandle, Id what, unsigned long long notfound)
 {
   RpmHead *rpmhead = rpmhandle;
   unsigned int u32;
+  unsigned long long u64;
 
   switch (what)
     {
+    case SOLVABLE_BUILDTIME:
+      u32 = headint32(rpmhead, TAG_BUILDTIME);
+      return u32 ? u32 : notfound;
     case SOLVABLE_INSTALLTIME:
       u32 = headint32(rpmhead, TAG_INSTALLTIME);
+      return u32 ? u32 : notfound;
+    case SOLVABLE_INSTALLSIZE:
+      u64 = headint64(rpmhead, TAG_LONGSIZE);
+      if (u64)
+	return u64;
+      u32 = headint32(rpmhead, TAG_SIZE);
       return u32 ? u32 : notfound;
     }
   return notfound;
 }
+
+void
+rpm_query_idarray(void *rpmhandle, Id what, Pool *pool, Queue *q, int flags)
+{
+  RpmHead *rpmhead = rpmhandle;
+  queue_empty(q);
+  switch(what)
+    {
+    case SOLVABLE_PROVIDES:
+      makedeps(pool, NULL, rpmhead, TAG_PROVIDENAME, TAG_PROVIDEVERSION, TAG_PROVIDEFLAGS, flags, q);
+      return;
+    case SOLVABLE_REQUIRES:
+      makedeps(pool, NULL, rpmhead, TAG_REQUIRENAME, TAG_REQUIREVERSION, TAG_REQUIREFLAGS, flags, q);
+      return;
+    case SOLVABLE_CONFLICTS:
+      makedeps(pool, NULL, rpmhead, TAG_CONFLICTNAME, TAG_CONFLICTVERSION, TAG_CONFLICTFLAGS, flags, q);
+      return;
+    case SOLVABLE_ORDERWITHREQUIRES:
+      makedeps(pool, NULL, rpmhead, TAG_ORDERNAME, TAG_ORDERVERSION, TAG_ORDERFLAGS, flags, q);
+      return;
+    }
+}
+
 
 #ifdef ENABLE_RPMDB
 
