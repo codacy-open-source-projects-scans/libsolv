@@ -20,6 +20,8 @@
 #include "poolid_private.h"
 #include "util.h"
 
+#define REL_BLOCK		1023	/* hashtable for relations */
+
 static inline void
 grow_whatprovides(Pool *pool, Id id)
 {
@@ -31,6 +33,16 @@ grow_whatprovides(Pool *pool, Id id)
     }
   if (pool->addedfileprovides == 1)
     pool->whatprovides[id] = 1;
+}
+
+static inline void
+grow_whatprovides_rel(Pool *pool, Id id)
+{
+  if ((id & WHATPROVIDES_BLOCK) == 0)
+    {
+      pool->whatprovides_rel = solv_realloc2(pool->whatprovides_rel, id + (WHATPROVIDES_BLOCK + 1), sizeof(Offset));
+      memset(pool->whatprovides_rel + id, 0, (WHATPROVIDES_BLOCK + 1) * sizeof(Offset));
+    }
 }
 
 /* intern string into pool, return id */
@@ -53,6 +65,15 @@ pool_strn2id(Pool *pool, const char *str, unsigned int len, int create)
   if (create && pool->whatprovides && oldnstrings != pool->ss.nstrings)
     grow_whatprovides(pool, id);
   return id;
+}
+
+void
+pool_init_rels(Pool *pool)
+{
+  /* alloc space for RelDep 0 */
+  pool->rels = solv_extend_resize(0, 1, sizeof(Reldep), REL_BLOCK);
+  pool->nrels = 1;
+  memset(pool->rels, 0, sizeof(Reldep));
 }
 
 void
@@ -129,11 +150,8 @@ pool_rel2id(Pool *pool, Id name, Id evr, int flags, int create)
   ran->flags = flags;
 
   /* extend whatprovides_rel if needed */
-  if (pool->whatprovides_rel && (id & WHATPROVIDES_BLOCK) == 0)
-    {
-      pool->whatprovides_rel = solv_realloc2(pool->whatprovides_rel, id + (WHATPROVIDES_BLOCK + 1), sizeof(Offset));
-      memset(pool->whatprovides_rel + id, 0, (WHATPROVIDES_BLOCK + 1) * sizeof(Offset));
-    }
+  if (pool->whatprovides_rel)
+    grow_whatprovides_rel(pool, id);
   return MAKERELDEP(id);
 }
 

@@ -129,24 +129,21 @@ main(int argc, char **argv)
   if (isrepo)
     {
       if (islocaldb)
-	flags |= APK_ADD_INDEX;
+	flags |= APK_ADD_INSTALLED_DB;
       if (!npkgs)
 	{
-	  FILE *fp = islocaldb ? stdin : solv_xfopen_fd("stdin.tar.gz", 0, "r");;
-	  if (repo_add_apk_repo(repo, fp, REPO_REUSE_REPODATA|REPO_NO_INTERNALIZE|flags) != 0)
+	  if (repo_add_apk_repo(repo, stdin, REPO_REUSE_REPODATA|REPO_NO_INTERNALIZE|flags) != 0)
 	    {
 	      fprintf(stderr, "apk2solv: %s\n", pool_errstr(pool));
 	      res = 1;
 	    }
-	  if (fp != stdin)
-	    fclose(fp);
 	}
       else 
 	{
 	  for (i = 0; i < npkgs; i++)
 	    {
 	      FILE *fp;
-	      if (!(fp = solv_xfopen(pkgs[i], "r")))
+	      if (!(fp = fopen(pkgs[i], "r")))
 		{
 		  perror(pkgs[i]);
 		  res = 1;

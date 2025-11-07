@@ -2,6 +2,8 @@ SOLV_1.0 {
 	global:
 		dataiterator_clonepos;
 		dataiterator_entersub;
+		dataiterator_final_repo;
+		dataiterator_final_solvable;
 		dataiterator_free;
 		dataiterator_init;
 		dataiterator_init_clone;
@@ -94,6 +96,7 @@ SOLV_1.0 {
 		pool_prepend_rootdir_tmp;
 		pool_queuetowhatprovides;
 		pool_rel2id;
+		pool_satisfieddep_map;
 		pool_search;
 		pool_selection2str;
 		pool_set_custom_vendorcheck;

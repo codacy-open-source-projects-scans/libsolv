@@ -607,7 +607,7 @@ getdecisionlist(Solver *solv, Map *dm, int flags, Queue *decisionlistq)
       info = solv->decisionq_why.elements[ii];
       if (info > 0)
 	reason = SOLVER_REASON_UNIT_RULE;
-      else if (info <= 0)
+      else
 	{
 	  info = -info;
 	  reason = solv->decisionmap[vv];
@@ -737,7 +737,10 @@ solver_get_decisionlist(Solver *solv, Id id, int flags, Queue *decisionlistq)
   Pool *pool = solv->pool;
   Map dm;
   if ((flags & SOLVER_DECISIONLIST_TYPEMASK) != SOLVER_DECISIONLIST_SOLVABLE)
-    return solver_get_proof(solv, id, flags, decisionlistq);
+  {
+    solver_get_proof(solv, id, flags, decisionlistq);
+    return;
+  }
   map_init(&dm, pool->nsolvables);
   MAPSET(&dm, id);
   getdecisionlist(solv, &dm, flags, decisionlistq);

@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifndef _WIN32
+#include <strings.h>
+#endif
 
 #include "pool.h"
 #include "util.h"

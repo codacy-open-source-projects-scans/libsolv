@@ -1,6 +1,6 @@
-PROJECT (libsolv C)
+CMAKE_MINIMUM_REQUIRED (VERSION 3.5)
 
-CMAKE_MINIMUM_REQUIRED (VERSION 2.8.5)
+PROJECT (libsolv C)
 
 OPTION (ENABLE_STATIC "Build a static version of the libraries?" OFF)
 OPTION (DISABLE_SHARED "Do not build a shared version of the libraries?" OFF)
@@ -42,6 +42,9 @@ OPTION (ENABLE_ZCHUNK_COMPRESSION "Build with zchunk compression support?" OFF)
 OPTION (WITH_SYSTEM_ZCHUNK "Use system zchunk library?" OFF)
 OPTION (WITH_LIBXML2  "Build with libxml2 instead of libexpat?" OFF)
 OPTION (WITHOUT_COOKIEOPEN "Disable the use of stdio cookie opens?" OFF)
+
+OPTION (ENABLE_STATIC_TOOLS "Link the tools against the static version of the libraries?" OFF)
+OPTION (ENABLE_STATIC_BINDINGS "Link the bindings against the static version of the libraries?" OFF)
 
 include (GNUInstallDirs)
 message (STATUS "Libraries will be installed in ${CMAKE_INSTALL_FULL_LIBDIR}")
@@ -155,6 +158,10 @@ ENDIF (WITH_SYSTEM_ZCHUNK)
 IF (ENABLE_ZCHUNK_COMPRESSION)
 SET (ENABLE_ZSTD_COMPRESSION ON)
 ENDIF (ENABLE_ZCHUNK_COMPRESSION)
+
+IF (ENABLE_APK)
+SET (ENABLE_ZSTD_COMPRESSION ON)
+ENDIF (ENABLE_APK)
 
 IF (ENABLE_RPMMD OR ENABLE_SUSEREPO OR ENABLE_APPDATA OR ENABLE_COMPS OR ENABLE_HELIXREPO OR ENABLE_MDKREPO)
 IF (WITH_LIBXML2 )
@@ -272,7 +279,6 @@ CHECK_FUNCTION_EXISTS (fopencookie HAVE_FOPENCOOKIE)
 CHECK_FUNCTION_EXISTS (funopen HAVE_FUNOPEN)
 TEST_BIG_ENDIAN (WORDS_BIGENDIAN)
 
-IF (${CMAKE_MAJOR_VERSION} GREATER 2)
 INCLUDE (CMakePushCheckState)
 INCLUDE (CheckCCompilerFlag)
 MACRO (check_linker_flag FLAG VAR)
@@ -283,10 +289,6 @@ MACRO (check_linker_flag FLAG VAR)
 ENDMACRO (check_linker_flag)
 check_linker_flag("-Wl,--as-needed" HAVE_LINKER_AS_NEEDED)
 check_linker_flag("-Wl,--version-script=${CMAKE_SOURCE_DIR}/src/libsolv.ver" HAVE_LINKER_VERSION_SCRIPT)
-ELSE (${CMAKE_MAJOR_VERSION} GREATER 2)
-SET (HAVE_LINKER_AS_NEEDED 1)
-SET (HAVE_LINKER_VERSION_SCRIPT 1)
-ENDIF (${CMAKE_MAJOR_VERSION} GREATER 2)
 
 # should create config.h with #cmakedefine instead...
 FOREACH (VAR HAVE_STRCHRNUL HAVE_FOPENCOOKIE HAVE_FUNOPEN WORDS_BIGENDIAN
