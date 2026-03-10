@@ -108,6 +108,7 @@ struct parsedata {
   const char *kind;
   int isdefault;
   int isvisible;
+  int groupid_isdefault;
   Id handle;
 };
 
@@ -188,6 +189,13 @@ startElement(struct solv_xmlparser *xmlp, int state, const char *name, const cha
 	break;
       }
 
+    case STATE_GROUPID:
+      {
+	const char *isdefault = solv_xmlparser_find_attr("default", atts);
+	pd->groupid_isdefault = (isdefault && !strcmp(isdefault, "true"));
+	break;
+      }
+
     default:
       break;
     }
@@ -240,7 +248,10 @@ endElement(struct solv_xmlparser *xmlp, int state, char *content)
 
     case STATE_GROUPID:
       id = pool_str2id(pd->pool, join2(&pd->jd, "group", ":", content), 1);
-      repo_add_idarray(pd->repo, pd->handle, pd->reqtype, id);
+      if (pd->groupid_isdefault && pd->reqtype == SOLVABLE_SUGGESTS)
+        repo_add_idarray(pd->repo, pd->handle, SOLVABLE_RECOMMENDS, id);
+      else
+        repo_add_idarray(pd->repo, pd->handle, pd->reqtype, id);
       break;
 
     case STATE_USERVISIBLE:
