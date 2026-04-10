@@ -75,6 +75,7 @@ dirpool_free(Dirpool *dp)
 {
   solv_free(dp->dirs);
   solv_free(dp->dirtraverse);
+  solv_free(dp->dirhashtbl);
 }
 
 void
@@ -96,10 +97,49 @@ dirpool_make_dirtraverse(Dirpool *dp)
   dp->dirtraverse = dirtraverse;
 }
 
+static inline Hashval
+dirpool_hash_parent_comp(Id parent, Id comp)
+{
+  return parent + 7 * comp;
+}
+
+/* Build or rebuild the (parent, comp) -> dirid hash table.
+ * This replaces the old O(B*C) dirtraverse linked-list scan
+ * with O(1) amortized lookup in dirpool_add_dir. */
+static void
+dirpool_resize_hash(Dirpool *dp, int numnew)
+{
+  Hashval hm, h, hh;
+  Hashtable ht;
+  Id i, parent = 0;
+
+  hm = mkmask(dp->ndirs + numnew);
+  if (dp->dirhashtbl && hm <= dp->dirhashmask)
+    return;
+  dp->dirhashmask = hm;
+  solv_free(dp->dirhashtbl);
+  ht = dp->dirhashtbl = (Hashtable)solv_calloc(hm + 1, sizeof(Id));
+  for (i = 2; i < dp->ndirs; i++)
+    {
+      if (dp->dirs[i] <= 0)
+	{
+	  parent = -dp->dirs[i];
+	  continue;
+	}
+      h = dirpool_hash_parent_comp(parent, dp->dirs[i]) & hm;
+      hh = HASHCHAIN_START;
+      while (ht[h])
+	h = HASHCHAIN_NEXT(h, hh, hm);
+      ht[h] = i;
+    }
+}
+
 Id
 dirpool_add_dir(Dirpool *dp, Id parent, Id comp, int create)
 {
-  Id did, d, ds;
+  Id did;
+  Hashval h, hh, hm;
+  Hashtable ht;
 
   if (!dp->ndirs)
     {
@@ -114,28 +154,36 @@ dirpool_add_dir(Dirpool *dp, Id parent, Id comp, int create)
     return 0;
   if (parent == 0 && comp == 1)
     return 1;
-  if (!dp->dirtraverse)
-    dirpool_make_dirtraverse(dp);
-  /* check all entries with this parent if we
-   * already have this component */
-  ds = dp->dirtraverse[parent];
-  while (ds)
+
+  /* grow hash table if load factor exceeds 50% */
+  if ((Hashval)dp->ndirs * 2 >= dp->dirhashmask)
+    dirpool_resize_hash(dp, DIR_BLOCK);
+
+  ht = dp->dirhashtbl;
+  hm = dp->dirhashmask;
+
+  /* probe for existing (parent, comp) entry */
+  h = dirpool_hash_parent_comp(parent, comp) & hm;
+  hh = HASHCHAIN_START;
+  while ((did = ht[h]) != 0)
     {
-      /* ds: first component in this block
-       * ds-1: parent link */
-      for (d = ds--; d < dp->ndirs; d++)
+      if (dp->dirs[did] == comp)
 	{
-	  if (dp->dirs[d] == comp)
-	    return d;
-	  if (dp->dirs[d] <= 0)	/* reached end of this block */
-	    break;
+	  /* comp matches, verify parent by walking back to
+	   * the block header (short sequential scan) */
+	  Id d = did;
+	  while (dp->dirs[--d] > 0)
+	    ;
+	  if (-dp->dirs[d] == parent)
+	    return did;
 	}
-      if (ds)
-        ds = dp->dirtraverse[ds];
+      h = HASHCHAIN_NEXT(h, hh, hm);
     }
+
   if (!create)
     return 0;
-  /* a new one, find last parent */
+
+  /* find last parent block */
   for (did = dp->ndirs - 1; did > 0; did--)
     if (dp->dirs[did] <= 0)
       break;
@@ -143,16 +191,28 @@ dirpool_add_dir(Dirpool *dp, Id parent, Id comp, int create)
     {
       /* make room for parent entry */
       dp->dirs = solv_extend(dp->dirs, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
-      dp->dirtraverse = solv_extend(dp->dirtraverse, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
       /* new parent block, link in */
       dp->dirs[dp->ndirs] = -parent;
-      dp->dirtraverse[dp->ndirs] = dp->dirtraverse[parent];
-      dp->dirtraverse[parent] = ++dp->ndirs;
+      if (dp->dirtraverse)
+	{
+	  dp->dirtraverse = solv_extend(dp->dirtraverse, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
+	  dp->dirtraverse[dp->ndirs] = dp->dirtraverse[parent];
+	  dp->dirtraverse[parent] = dp->ndirs;
+	}
+      dp->ndirs++;
     }
   /* make room for new entry */
   dp->dirs = solv_extend(dp->dirs, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
-  dp->dirtraverse = solv_extend(dp->dirtraverse, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
   dp->dirs[dp->ndirs] = comp;
-  dp->dirtraverse[dp->ndirs] = 0;
+  if (dp->dirtraverse)
+    {
+      dp->dirtraverse = solv_extend(dp->dirtraverse, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
+      dp->dirtraverse[dp->ndirs] = 0;
+    }
+
+  /* insert new entry into hash table (h still points at
+   * the empty slot from the failed probe above) */
+  ht[h] = dp->ndirs;
+
   return dp->ndirs++;
 }

@@ -22,6 +22,7 @@
 
 #include "util.h"
 #include "queue.h"
+#include "hash.h"
 #include "solv_xmlparser.h"
 
 static inline void
@@ -94,6 +95,12 @@ static const xmlChar **fixup_atts(struct solv_xmlparser *xmlp, const xmlChar **a
 }
 #endif
 
+static inline Hashval
+hash_state_name(int state, const char *name)
+{
+  return strhash_cont(name, (Hashval)state * 37);
+}
+
 #ifdef WITH_LIBXML2
 static void
 start_element(void *userData, const xmlChar *name, const xmlChar **atts)
@@ -103,23 +110,29 @@ start_element(void *userData, const char *name, const char **atts)
 #endif
 {
   struct solv_xmlparser *xmlp = userData;
-  struct solv_xmlparser_element *elements;
-  Id *elementhelper;
+  struct solv_xmlparser_element *elements = xmlp->elements;
+  Id *elementhelper = xmlp->elementhelper;
   struct solv_xmlparser_element *el;
-  int i, oldstate;
+  Hashval hm = xmlp->elementhashmask;
+  Hashval h, hh;
+  int oldstate = xmlp->state;
 
   if (xmlp->unknowncnt)
     {
       xmlp->unknowncnt++;
       return;
     }
-  elementhelper = xmlp->elementhelper;
-  elements = xmlp->elements;
-  oldstate = xmlp->state;
-  for (i = elementhelper[xmlp->nelements + oldstate]; i; i = elementhelper[i - 1])
-    if (!strcmp(elements[i - 1].element, (char *)name))
-      break;
-  if (!i)
+
+  /* open-addressing hash lookup keyed on (oldstate, name) */
+  h = hash_state_name(oldstate, (const char *)name) & hm;
+  hh = HASHCHAIN_START;
+  while ((el = elementhelper[h] ? &elements[elementhelper[h] - 1] : 0) != 0)
+    {
+      if (el->fromstate == oldstate && !strcmp(el->element, (const char *)name))
+	break;
+      h = HASHCHAIN_NEXT(h, hh, hm);
+    }
+  if (!el)
     {
 #if 0
       fprintf(stderr, "into unknown: %s\n", name);
@@ -127,7 +140,7 @@ start_element(void *userData, const char *name, const char **atts)
       xmlp->unknowncnt++;
       return;
     }
-  el = xmlp->elements + i - 1;
+
   queue_push(&xmlp->elementq, xmlp->state);
   xmlp->state = el->tostate;
   xmlp->docontent = el->docontent;
@@ -177,33 +190,30 @@ solv_xmlparser_init(struct solv_xmlparser *xmlp,
     void (*startelement)(struct solv_xmlparser *, int state, const char *name, const char **atts),
     void (*endelement)(struct solv_xmlparser *, int state, char *content))
 {
-  int i, nstates, nelements;
+  int i, nelements;
   struct solv_xmlparser_element *el;
   Id *elementhelper;
+  Hashval hm, h, hh;
 
   memset(xmlp, 0, sizeof(*xmlp));
-  nstates = 0;
   nelements = 0;
   for (el = elements; el->element; el++)
-    {
-      nelements++;
-      if (el->fromstate > nstates)
-	nstates = el->fromstate;
-      if (el->tostate > nstates)
-	nstates = el->tostate;
-    }
-  nstates++;
+    nelements++;
 
   xmlp->elements = elements;
   xmlp->nelements = nelements;
-  elementhelper = solv_calloc(nelements + nstates, sizeof(Id));
-  for (i = nelements - 1; i >= 0; i--)
+  hm = mkmask(nelements);
+  elementhelper = solv_calloc(hm + 1, sizeof(Id));
+  for (i = 0; i < nelements; i++)
     {
-      int fromstate = elements[i].fromstate;
-      elementhelper[i] = elementhelper[nelements + fromstate];
-      elementhelper[nelements + fromstate] = i + 1;
+      h = hash_state_name(elements[i].fromstate, elements[i].element) & hm;
+      hh = HASHCHAIN_START;
+      while (elementhelper[h])
+        h = HASHCHAIN_NEXT(h, hh, hm);
+      elementhelper[h] = i + 1;
     }
   xmlp->elementhelper = elementhelper;
+  xmlp->elementhashmask = hm;
   queue_init(&xmlp->elementq);
   xmlp->acontent = 256;
   xmlp->content = solv_malloc(xmlp->acontent);
