@@ -22,6 +22,14 @@
 #include "util.h"
 
 void
+solv_ovfl(const char *str)
+{
+  fprintf(stderr, "%s\n", str);
+  abort();
+  exit(1);
+}
+
+void
 solv_oom(size_t num, size_t len)
 {
   if (num)
@@ -103,6 +111,8 @@ solv_extend_realloc(void *old, size_t len, size_t size, size_t block)
 	    len = nlen;
 	}
     }
+  if (len >= SOLV_MAX_BLKLEN)
+    solv_ovfl("solv extend realloc overflow");
   return solv_realloc2(old, len, size);
 }
 

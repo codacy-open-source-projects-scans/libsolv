@@ -48,7 +48,11 @@ repo_create(Pool *pool, const char *name)
       pool->repos = (Repo **)solv_calloc(2, sizeof(Repo *));
     }
   else
-    pool->repos = (Repo **)solv_realloc2(pool->repos, pool->nrepos + 1, sizeof(Repo *));
+    {
+      if (pool->nrepos + 1 >= SOLV_MAX_BLKLEN)
+	solv_ovfl("repository count overflow");
+      pool->repos = (Repo **)solv_realloc2(pool->repos, pool->nrepos + 1, sizeof(Repo *));
+    }
   pool->repos[pool->nrepos] = repo;
   pool->urepos++;
   repo->repoid = pool->nrepos++;
@@ -619,6 +623,8 @@ solv_depmarker(Id keyname, Id marker)
 Offset
 repo_reserve_ids(Repo *repo, Offset olddeps, int num)
 {
+  if (num < 0 || num >= SOLV_MAX_BLKLEN)
+    solv_ovfl("dependency array overflow");
   num++;	/* room for trailing ID_NULL */
 
   if (!repo->idarraysize)	       /* ensure buffer space */
@@ -1352,6 +1358,8 @@ repo_add_repodata(Repo *repo, int flags)
     }
   else
     {
+      if (repo->nrepodata + 1 >= SOLV_MAX_BLKLEN)
+	solv_ovfl("repodata count overflow");
       repo->nrepodata++;
       repo->repodata = solv_realloc2(repo->repodata, repo->nrepodata, sizeof(*data));
     }

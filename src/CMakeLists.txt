@@ -19,7 +19,7 @@ SET (libsolv_SRCS
     solver.c solverdebug.c repo_solv.c repo_write.c evr.c
     queue.c repo.c repodata.c repopage.c util.c policy.c solvable.c
     transaction.c order.c rules.c problems.c linkedpkg.c cplxdeps.c
-    chksum.c md5.c sha1.c sha2.c solvversion.c selection.c
+    chksum.c chksum_impl.c md5.c sha1.c sha2.c solvversion.c selection.c
     fileprovides.c diskusage.c suse.c solver_util.c cleandeps.c
     userinstalled.c filelistfilter.c decision.c)
 

@@ -44,6 +44,11 @@ extern size_t solv_validutf8(const char *buf);
 extern char *solv_latin1toutf8(const char *buf);
 extern char *solv_replacebadutf8(const char *buf, int replchar);
 
+#ifdef LIBSOLV_INTERNAL
+#define SOLV_MAX_BLKLEN	0x7fff0000
+extern void solv_ovfl(const char *);
+#endif
+
 
 static inline void *solv_extend(void *buf, size_t len, size_t nmemb, size_t size, size_t block)
 {

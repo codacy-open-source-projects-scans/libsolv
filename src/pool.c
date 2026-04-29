@@ -267,6 +267,8 @@ pool_add_solvable_block(Pool *pool, int count)
   Id nsolvables = pool->nsolvables;
   if (!count)
     return nsolvables;
+  if (count < 0 || count >= SOLV_MAX_BLKLEN)
+    solv_ovfl("solvable count overflow");
   pool->solvables = solv_extend(pool->solvables, pool->nsolvables, count, sizeof(Solvable), SOLVABLE_BLOCK);
   memset(pool->solvables + nsolvables, 0, sizeof(Solvable) * count);
   pool->nsolvables += count;

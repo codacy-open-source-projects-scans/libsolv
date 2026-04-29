@@ -167,16 +167,8 @@ dirpool_add_dir(Dirpool *dp, Id parent, Id comp, int create)
   hh = HASHCHAIN_START;
   while ((did = ht[h]) != 0)
     {
-      if (dp->dirs[did] == comp)
-	{
-	  /* comp matches, verify parent by walking back to
-	   * the block header (short sequential scan) */
-	  Id d = did;
-	  while (dp->dirs[--d] > 0)
-	    ;
-	  if (-dp->dirs[d] == parent)
-	    return did;
-	}
+      if (dp->dirs[did] == comp && dirpool_parent(dp, did) == parent)
+	return did;
       h = HASHCHAIN_NEXT(h, hh, hm);
     }
 

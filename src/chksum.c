@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2012, Novell Inc.
+ * Copyright (c) 2008-2026, SUSE LLC
  *
  * This program is licensed under the BSD license, read LICENSE.BSD
  * for further information
@@ -26,58 +26,12 @@
   #include "strfncs.h"
 #endif
 
+/* keep in sync with chksum_impl.c */
 struct s_Chksum {
   Id type;
-  int done;
-  unsigned char result[64];
-  union {
-    MD5_CTX md5;
-    SHA1_CTX sha1;
-    SHA224_CTX sha224;
-    SHA256_CTX sha256;
-    SHA384_CTX sha384;
-    SHA512_CTX sha512;
-  } c;
+  void * (*impl)(struct s_Chksum *, int);
+  unsigned char result[SOLV_CHKSUM_MAXLEN];
 };
-
-Chksum *
-solv_chksum_create(Id type)
-{
-  Chksum *chk;
-  chk = solv_calloc(1, sizeof(*chk));
-  chk->type = type;
-  switch(type)
-    {
-    case REPOKEY_TYPE_MD5:
-      solv_MD5_Init(&chk->c.md5);
-      return chk;
-    case REPOKEY_TYPE_SHA1:
-      solv_SHA1_Init(&chk->c.sha1);
-      return chk;
-    case REPOKEY_TYPE_SHA224:
-      solv_SHA224_Init(&chk->c.sha224);
-      return chk;
-    case REPOKEY_TYPE_SHA256:
-      solv_SHA256_Init(&chk->c.sha256);
-      return chk;
-    case REPOKEY_TYPE_SHA384:
-      solv_SHA384_Init(&chk->c.sha384);
-      return chk;
-    case REPOKEY_TYPE_SHA512:
-      solv_SHA512_Init(&chk->c.sha512);
-      return chk;
-    default:
-      break;
-    }
-  free(chk);
-  return 0;
-}
-
-Chksum *
-solv_chksum_create_clone(Chksum *chk)
-{
-  return solv_memdup(chk, sizeof(*chk));
-}
 
 int
 solv_chksum_len(Id type)
@@ -110,93 +64,32 @@ solv_chksum_create_from_bin(Id type, const unsigned char *buf)
     return 0;
   chk = solv_calloc(1, sizeof(*chk));
   chk->type = type;
-  chk->done = 1;
   memcpy(chk->result, buf, l);
   return chk;
 }
 
-void
-solv_chksum_add(Chksum *chk, const void *data, int len)
+Chksum *
+solv_chksum_create_clone(Chksum *chk)
 {
-  if (chk->done)
-    return;
-  switch(chk->type)
-    {
-    case REPOKEY_TYPE_MD5:
-      solv_MD5_Update(&chk->c.md5, (void *)data, len);
-      return;
-    case REPOKEY_TYPE_SHA1:
-      solv_SHA1_Update(&chk->c.sha1, data, len);
-      return;
-    case REPOKEY_TYPE_SHA224:
-      solv_SHA224_Update(&chk->c.sha224, data, len);
-      return;
-    case REPOKEY_TYPE_SHA256:
-      solv_SHA256_Update(&chk->c.sha256, data, len);
-      return;
-    case REPOKEY_TYPE_SHA384:
-      solv_SHA384_Update(&chk->c.sha384, data, len);
-      return;
-    case REPOKEY_TYPE_SHA512:
-      solv_SHA512_Update(&chk->c.sha512, data, len);
-      return;
-    default:
-      return;
-    }
+  if (chk->impl)
+    return chk->impl(chk, SOLV_CHKSUMP_IMPL_CLONE);
+  return solv_memdup(chk, sizeof(*chk));
+}
+
+static inline int
+solv_chksum_finalize(Chksum *chk)
+{
+  unsigned char *end = chk->impl(chk, SOLV_CHKSUMP_IMPL_FINALIZE);
+  return end ? end - chk->result : 0;
 }
 
 const unsigned char *
 solv_chksum_get(Chksum *chk, int *lenp)
 {
-  if (chk->done)
-    {
-      if (lenp)
-        *lenp = solv_chksum_len(chk->type);
-      return chk->result;
-    }
-  switch(chk->type)
-    {
-    case REPOKEY_TYPE_MD5:
-      solv_MD5_Final(chk->result, &chk->c.md5);
-      chk->done = 1;
-      if (lenp)
-	*lenp = 16;
-      return chk->result;
-    case REPOKEY_TYPE_SHA1:
-      solv_SHA1_Final(&chk->c.sha1, chk->result);
-      chk->done = 1;
-      if (lenp)
-	*lenp = 20;
-      return chk->result;
-    case REPOKEY_TYPE_SHA224:
-      solv_SHA224_Final(chk->result, &chk->c.sha224);
-      chk->done = 1;
-      if (lenp)
-	*lenp = 28;
-      return chk->result;
-    case REPOKEY_TYPE_SHA256:
-      solv_SHA256_Final(chk->result, &chk->c.sha256);
-      chk->done = 1;
-      if (lenp)
-	*lenp = 32;
-      return chk->result;
-    case REPOKEY_TYPE_SHA384:
-      solv_SHA384_Final(chk->result, &chk->c.sha384);
-      chk->done = 1;
-      if (lenp)
-	*lenp = 48;
-      return chk->result;
-    case REPOKEY_TYPE_SHA512:
-      solv_SHA512_Final(chk->result, &chk->c.sha512);
-      chk->done = 1;
-      if (lenp)
-	*lenp = 64;
-      return chk->result;
-    default:
-      if (lenp)
-	*lenp = 0;
-      return 0;
-    }
+  int len = chk->impl ? solv_chksum_finalize(chk) : solv_chksum_len(chk->type);
+  if (lenp)
+    *lenp = len;
+  return len ? chk->result : 0;
 }
 
 Id
@@ -208,7 +101,7 @@ solv_chksum_get_type(Chksum *chk)
 int
 solv_chksum_isfinished(Chksum *chk)
 {
-  return chk->done != 0;
+  return !chk->impl;
 }
 
 const char *
@@ -256,12 +149,12 @@ solv_chksum_free(Chksum *chk, unsigned char *cp)
 {
   if (cp)
     {
-      const unsigned char *res;
-      int l;
-      res = solv_chksum_get(chk, &l);
-      if (l && res)
-        memcpy(cp, res, l);
+      int len = chk->impl ? solv_chksum_finalize(chk) : solv_chksum_len(chk->type);
+      if (len)
+        memcpy(cp, chk->result, len);
     }
+  else if (chk->impl)
+    chk->impl(chk, SOLV_CHKSUMP_IMPL_FREE);	/* free resources */
   solv_free(chk);
   return 0;
 }
@@ -277,5 +170,5 @@ solv_chksum_cmp(Chksum *chk, Chksum *chk2)
     return 0;
   res1 = solv_chksum_get(chk, &len);
   res2 = solv_chksum_get(chk2, 0);
-  return memcmp(res1, res2, len) == 0 ? 1 : 0;
+  return res1 && res2 && memcmp(res1, res2, len) == 0 ? 1 : 0;
 }

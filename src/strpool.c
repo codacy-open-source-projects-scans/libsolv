@@ -12,6 +12,8 @@
 #define STRING_BLOCK      2047
 #define STRINGSPACE_BLOCK 65535
 
+#define STRING_MAXSIZE 0x40000000
+
 void
 stringpool_init(Stringpool *ss, const char *strs[])
 {
@@ -113,6 +115,12 @@ stringpool_strn2id(Stringpool *ss, const char *str, unsigned int len, int create
   if (!len)
     return STRID_EMPTY;
 
+  if (len >= STRING_MAXSIZE)
+    {
+      solv_ovfl("maximum string size overflow");
+      return 0;
+    }
+
   hashmask = ss->stringhashmask;
 
   /* expand hashtable if needed */
@@ -160,11 +168,18 @@ stringpool_strn2id(Stringpool *ss, const char *str, unsigned int len, int create
 Id
 stringpool_str2id(Stringpool *ss, const char *str, int create)
 {
+  size_t len;
   if (!str)
     return STRID_NULL;
   if (!*str)
     return STRID_EMPTY;
-  return stringpool_strn2id(ss, str, (unsigned int)strlen(str), create);
+  len = strlen(str);
+  if (len >= STRING_MAXSIZE)
+    {
+      solv_ovfl("maximum string size overflow");
+      return 0;
+    }
+  return stringpool_strn2id(ss, str, (unsigned int)len, create);
 }
 
 void

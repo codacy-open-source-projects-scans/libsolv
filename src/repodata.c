@@ -183,9 +183,10 @@ repodata_key2id(Repodata *data, Repokey *key, int create)
 Id
 repodata_schema2id(Repodata *data, Id *schema, int create)
 {
-  int h, len, i;
+  int h, i;
   Id *sp, cid;
   Id *schematahash;
+  size_t len;
 
   if (!*schema)
     return 0;	/* XXX: allow empty schema? */
@@ -223,6 +224,8 @@ repodata_schema2id(Repodata *data, Id *schema, int create)
   /* a new one */
   if (!create)
     return 0;
+  if (len >= SOLV_MAX_BLKLEN)
+    solv_ovfl("schema length overflow");
   data->schemadata = solv_extend(data->schemadata, data->schemadatalen, len, sizeof(Id), SCHEMATADATA_BLOCK);
   data->schemata = solv_extend(data->schemata, data->nschemata, 1, sizeof(Id), SCHEMATA_BLOCK);
   /* add schema */
