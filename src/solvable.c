@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "pool.h"
+#include "pool_private.h"
 #include "repo.h"
 #include "util.h"
 #include "policy.h"
@@ -200,41 +201,22 @@ solvable_lookup_str_base(Solvable *s, Id keyname, Id basekeyname, int usebase)
   return usebase ? basestr : 0;
 }
 
+
 const char *
 solvable_lookup_str_poollang(Solvable *s, Id keyname)
 {
   Pool *pool;
-  int i, cols;
+  int i;
   const char *str;
   Id *row;
 
   if (!s->repo)
     return 0;
   pool = s->repo->pool;
-  if (!pool->nlanguages)
+  if (!pool->nlanguages || !keyname)
     return solvable_lookup_str(s, keyname);
-  cols = pool->nlanguages + 1;
-  if (!pool->languagecache)
-    {
-      pool->languagecache = solv_calloc(cols * ID_NUM_INTERNAL, sizeof(Id));
-      pool->languagecacheother = 0;
-    }
-  if (keyname >= ID_NUM_INTERNAL)
-    {
-      row = pool->languagecache + ID_NUM_INTERNAL * cols;
-      for (i = 0; i < pool->languagecacheother; i++, row += cols)
-	if (*row == keyname)
-	  break;
-      if (i >= pool->languagecacheother)
-	{
-	  pool->languagecache = solv_realloc2(pool->languagecache, pool->languagecacheother + 1, cols * sizeof(Id));
-	  row = pool->languagecache + cols * (ID_NUM_INTERNAL + pool->languagecacheother++);
-	  *row = keyname;
-	}
-    }
-  else
-    row = pool->languagecache + keyname * cols;
-  row++;	/* skip keyname */
+  /* the languagecache caches the pool_id2langid result for all configured languages */
+  row = pool_lookup_languagecache_row(pool, keyname);
   for (i = 0; i < pool->nlanguages; i++, row++)
     {
       if (!*row)

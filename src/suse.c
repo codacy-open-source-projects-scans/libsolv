@@ -94,9 +94,10 @@ fix_namespace_dep(Pool *pool, Id id)
   rd = GETRELDEP(pool, id);
   if (rd->flags == REL_AND || rd->flags == REL_OR || rd->flags == REL_COND || rd->flags == REL_UNLESS || rd->flags == REL_ELSE)
     {
-      Id name = fix_namespace_dep(pool, rd->name);
-      Id evr = fix_namespace_dep(pool, rd->evr);
-      return name == rd->name && evr == rd->evr ? id : pool_rel2id(pool, name, evr, rd->flags, 1);
+      Id name = rd->name, evr = rd->evr, flags = rd->flags;
+      Id newname = fix_namespace_dep(pool, name);
+      Id newevr = fix_namespace_dep(pool, evr);
+      return newname == name && newevr == evr ? id : pool_rel2id(pool, newname, newevr, flags, 1);
     }
   return id;
 }
@@ -107,7 +108,7 @@ repo_fix_supplements(Repo *repo, Offset provides, Offset supplements, Offset fre
   Pool *pool = repo->pool;
   Id id, idp, idl;
   char buf[1024], *p, *bp;
-  const char *dep;
+  const char *dep, *colon;
   int i, l;
 
   if (provides)
@@ -163,10 +164,10 @@ repo_fix_supplements(Repo *repo, Offset provides, Offset supplements, Offset fre
 	      if (id)
 		supplements = repo_addid_dep(repo, supplements, id, 0);
 	    }
-	  else if ((p = strchr(dep, ':')) != 0 && p != dep && p[1] == '/' && strlen(dep) < sizeof(buf))
+	  else if ((colon = strchr(dep, ':')) != 0 && colon != dep && colon[1] == '/' && strlen(dep) < sizeof(buf))
 	    {
 	      strcpy(buf, dep);
-	      p = buf + (p - dep);
+	      p = buf + (colon - dep);
 	      *p++ = 0;
 	      idp = pool_str2id(pool, buf, 1);
 	      /* strip trailing slashes */

@@ -82,9 +82,9 @@ void
 dirpool_make_dirtraverse(Dirpool *dp)
 {
   Id parent, i, *dirtraverse;
+  dp->dirtraverse = solv_free(dp->dirtraverse);
   if (!dp->ndirs)
     return;
-  dp->dirs = solv_extend_resize(dp->dirs, dp->ndirs, sizeof(Id), DIR_BLOCK);
   dirtraverse = solv_calloc_block(dp->ndirs, sizeof(Id), DIR_BLOCK);
   for (i = 0; i < dp->ndirs; i++)
     {
@@ -118,7 +118,7 @@ dirpool_resize_hash(Dirpool *dp, int numnew)
     return;
   dp->dirhashmask = hm;
   solv_free(dp->dirhashtbl);
-  ht = dp->dirhashtbl = (Hashtable)solv_calloc(hm + 1, sizeof(Id));
+  ht = dp->dirhashtbl = allochashtable(hm, 1);
   for (i = 2; i < dp->ndirs; i++)
     {
       if (dp->dirs[i] <= 0)
@@ -132,6 +132,23 @@ dirpool_resize_hash(Dirpool *dp, int numnew)
 	h = HASHCHAIN_NEXT(h, hh, hm);
       ht[h] = i;
     }
+}
+
+/* Create a new block for a parent */
+static void
+dirpool_add_block(Dirpool *dp, Id parent)
+{
+  /* make room for parent entry */
+  dp->dirs = solv_extend(dp->dirs, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
+  /* new parent block, update dirtraverse if present */
+  dp->dirs[dp->ndirs] = -parent;
+  if (dp->dirtraverse)
+    {
+      dp->dirtraverse = solv_extend(dp->dirtraverse, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
+      dp->dirtraverse[dp->ndirs] = dp->dirtraverse[parent];
+      dp->dirtraverse[parent] = dp->ndirs + 1;	/* point to future entry */
+    }
+  dp->ndirs++;
 }
 
 Id
@@ -150,14 +167,19 @@ dirpool_add_dir(Dirpool *dp, Id parent, Id comp, int create)
       dp->dirs[0] = 0;
       dp->dirs[1] = 1;	/* "" */
     }
-  if (comp <= 0)
+  if (parent < 0 || comp <= 0)
     return 0;
   if (parent == 0 && comp == 1)
     return 1;
 
   /* grow hash table if load factor exceeds 50% */
   if ((Hashval)dp->ndirs * 2 >= dp->dirhashmask)
-    dirpool_resize_hash(dp, DIR_BLOCK);
+    {
+      /* hack: repo_add_solv will not use DIR_BLOCK, so realloc here */
+      if (!dp->dirhashmask)
+        dp->dirs = solv_extend_resize(dp->dirs, dp->ndirs, sizeof(Id), DIR_BLOCK);
+      dirpool_resize_hash(dp, DIR_BLOCK);
+    }
 
   ht = dp->dirhashtbl;
   hm = dp->dirhashmask;
@@ -175,36 +197,23 @@ dirpool_add_dir(Dirpool *dp, Id parent, Id comp, int create)
   if (!create)
     return 0;
 
-  /* find last parent block */
-  for (did = dp->ndirs - 1; did > 0; did--)
-    if (dp->dirs[did] <= 0)
-      break;
-  if (dp->dirs[did] != -parent)
-    {
-      /* make room for parent entry */
-      dp->dirs = solv_extend(dp->dirs, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
-      /* new parent block, link in */
-      dp->dirs[dp->ndirs] = -parent;
-      if (dp->dirtraverse)
-	{
-	  dp->dirtraverse = solv_extend(dp->dirtraverse, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
-	  dp->dirtraverse[dp->ndirs] = dp->dirtraverse[parent];
-	  dp->dirtraverse[parent] = dp->ndirs;
-	}
-      dp->ndirs++;
-    }
-  /* make room for new entry */
+  /* start a new block if the parent is different */
+  if (dirpool_parent(dp, dp->ndirs - 1) != parent)
+    dirpool_add_block(dp, parent);
+    
+  /* add new entry */
   dp->dirs = solv_extend(dp->dirs, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
   dp->dirs[dp->ndirs] = comp;
   if (dp->dirtraverse)
     {
       dp->dirtraverse = solv_extend(dp->dirtraverse, dp->ndirs, 1, sizeof(Id), DIR_BLOCK);
-      dp->dirtraverse[dp->ndirs] = 0;
+      dp->dirtraverse[dp->ndirs] = 0;	/* no children */
     }
+  did = dp->ndirs++;
 
   /* insert new entry into hash table (h still points at
    * the empty slot from the failed probe above) */
-  ht[h] = dp->ndirs;
+  ht[h] = did;
 
-  return dp->ndirs++;
+  return did;
 }

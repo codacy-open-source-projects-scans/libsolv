@@ -1,10 +1,39 @@
 -------------------------------------------------------------------
+Mon Sep 21 17:07:29 CEST 2026 - Michael Schroeder <mls@suse.de>
+
+- improve SUSE product link dependency generation if there are
+  multiple release packages for the same product [bsc#1279541]
+- fix possible segfault in the SUSE namespace dependency generation
+- bump version to 0.7.39
+
+-------------------------------------------------------------------
+Thu May 28 11:28:50 CEST 2026 - Michael Schroeder <mls@suse.de>
+
+- fix solv_chksum_free segfault when called with a NULL pointer
+- bump version to 0.7.39
+
+-------------------------------------------------------------------
+Tue May 26 10:31:41 CEST 2026 - Michael Schroeder <mls@suse.de>
+
+- made repo_add_solv more robust against corrupt files
+  [bsc#1265935] [CVE-2026-9149]
+- fix potential buffer overflow when verifying EdDSA signatures
+  [bsc#1266039] [CVE-2026-48863]
+- added limit checks in multiple places to catch overflows
+- reduce the size of the language id cache
+- fixed Debian canon selection
+- fixed dbpath detection in repo_rpmdb_librpm
+- reduced stack usage in repo page compression (needed for musl)
+- bump version to 0.7.38
+
+-------------------------------------------------------------------
 Thu Apr 23 11:22:49 CEST 2026 - Michael Schroeder <mls@suse.de>
 
 - fix parsing of sha512 checksums in debian repositories
+  [bsc#1265938] [CVE-2026-9150]
 - improve speed of dirpool_add_dir makeing parsing of filelists.xml
   twice as fast
-- fix parsing of recommands in the old Mandriva synthesis format
+- fix parsing of recommends in the old Mandriva synthesis format
 - bump version to 0.7.37
 
 -------------------------------------------------------------------

@@ -23,7 +23,6 @@
 
 #include "repo.h"
 #include "pool.h"
-#include "poolid_private.h"
 #include "util.h"
 #include "chksum.h"
 
@@ -49,7 +48,7 @@ repo_create(Pool *pool, const char *name)
     }
   else
     {
-      if (pool->nrepos + 1 >= SOLV_MAX_BLKLEN)
+      if (pool->nrepos + 1 >= SOLV_MAX_INDEX)
 	solv_ovfl("repository count overflow");
       pool->repos = (Repo **)solv_realloc2(pool->repos, pool->nrepos + 1, sizeof(Repo *));
     }
@@ -397,12 +396,14 @@ repo_addid_dep_hash(Repo *repo, Offset olddeps, Id id, Id marker, int size)
   if (repo->lastidhash_idarraysize != repo->idarraysize || (Hashval)size * 2 > repo->lastidhash_mask || repo->lastmarker != marker)
     {
       repo->lastmarkerpos = 0;
-      if ((Hashval)size * 2 > repo->lastidhash_mask)
+      if ((Hashval)size * 2 >= repo->lastidhash_mask)
 	{
 	  repo->lastidhash_mask = mkmask(size < REPO_ADDID_DEP_HASHMIN ? REPO_ADDID_DEP_HASHMIN : size);
-	  repo->lastidhash = solv_realloc2(repo->lastidhash, repo->lastidhash_mask + 1, sizeof(Id));
+	  solv_free(repo->lastidhash);
+	  repo->lastidhash = allochashtable(repo->lastidhash_mask, 1);
 	}
-      memset(repo->lastidhash, 0, (repo->lastidhash_mask + 1) * sizeof(Id));
+      else
+        memset(repo->lastidhash, 0, ((size_t)repo->lastidhash_mask + 1) * sizeof(Id));
       for (oidp = repo->idarraydata + olddeps; (oid = *oidp) != 0; oidp++)
 	{
 	  h = oid & repo->lastidhash_mask;
@@ -623,7 +624,7 @@ solv_depmarker(Id keyname, Id marker)
 Offset
 repo_reserve_ids(Repo *repo, Offset olddeps, int num)
 {
-  if (num < 0 || num >= SOLV_MAX_BLKLEN)
+  if (num < 0 || num >= SOLV_MAX_INDEX)
     solv_ovfl("dependency array overflow");
   num++;	/* room for trailing ID_NULL */
 
@@ -648,6 +649,8 @@ repo_reserve_ids(Repo *repo, Offset olddeps, int num)
 
       for (idstart = idend = repo->idarraydata + olddeps; *idend++; )   /* find end */
 	;
+      if (idend - idstart >= SOLV_MAX_INDEX - (num + 1))
+	solv_ovfl("dependency array overflow");
       count = idend - idstart - 1 + num;	       /* new size */
 
       repo->idarraydata = solv_extend(repo->idarraydata, repo->idarraysize, count, sizeof(Id), IDARRAY_BLOCK);
@@ -1358,7 +1361,7 @@ repo_add_repodata(Repo *repo, int flags)
     }
   else
     {
-      if (repo->nrepodata + 1 >= SOLV_MAX_BLKLEN)
+      if (repo->nrepodata + 1 >= SOLV_MAX_INDEX)
 	solv_ovfl("repodata count overflow");
       repo->nrepodata++;
       repo->repodata = solv_realloc2(repo->repodata, repo->nrepodata, sizeof(*data));
@@ -1620,6 +1623,7 @@ repo_unset(Repo *repo, Id p, Id keyname)
 	  return;
 	case SOLVABLE_SUPPLEMENTS:
 	  s->supplements = 0;
+	  return;
 	case SOLVABLE_ENHANCES:
 	  s->enhances = 0;
 	  return;

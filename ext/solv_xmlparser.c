@@ -30,10 +30,10 @@ add_contentspace(struct solv_xmlparser *xmlp, int l)
 {
   l += xmlp->lcontent + 1;	/* plus room for trailing zero */
   if (l > xmlp->acontent)
-    {    
+    {
       xmlp->acontent = l + 256; 
       xmlp->content = solv_realloc(xmlp->content, xmlp->acontent);
-    }    
+    }
 }
 
 
@@ -47,8 +47,10 @@ character_data(void *userData, const XML_Char *s, int len)
 {
   struct solv_xmlparser *xmlp = userData;
 
-  if (!xmlp->docontent || !len)
+  if (!xmlp->docontent || len <= 0)
     return;
+  if ((unsigned int)xmlp->lcontent + (unsigned int)len >= 0x40000000U)
+    return;	/* hey! just ignore for now */
   add_contentspace(xmlp, len);
   memcpy(xmlp->content + xmlp->lcontent, s, len);
   xmlp->lcontent += len; 
@@ -203,7 +205,7 @@ solv_xmlparser_init(struct solv_xmlparser *xmlp,
   xmlp->elements = elements;
   xmlp->nelements = nelements;
   hm = mkmask(nelements);
-  elementhelper = solv_calloc(hm + 1, sizeof(Id));
+  elementhelper = allochashtable(hm, 1);
   for (i = 0; i < nelements; i++)
     {
       h = hash_state_name(elements[i].fromstate, elements[i].element) & hm;
@@ -289,7 +291,7 @@ parse_block(struct solv_xmlparser *xmlp, char *buf, int l)
     }
   if (xmlParseChunk(xmlp->parser, buf, l, l == 0 ? 1 : 0))
     {
-      xmlErrorPtr err = xmlCtxtGetLastError(xmlp->parser);
+      const xmlError *err = xmlCtxtGetLastError(xmlp->parser);
       set_error(xmlp, err->message, err->line, err->int2);
       return 0;
     }
@@ -379,10 +381,12 @@ solv_xmlparser_contentspace(struct solv_xmlparser *xmlp, int l)
 {
   xmlp->lcontent = 0;
   if (l > xmlp->acontent)
-    {    
+    {
+      if ((unsigned int)l >= 0x40000000U)
+	solv_oom(0, l);
       xmlp->acontent = l + 256; 
       xmlp->content = solv_realloc(xmlp->content, xmlp->acontent);
-    }    
+    }
   return xmlp->content;
 }
 

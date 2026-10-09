@@ -16,8 +16,8 @@
 #include <stdio.h>
 
 #include "pool.h"
+#include "pool_private.h"
 #include "poolid.h"
-#include "poolid_private.h"
 #include "util.h"
 
 #define REL_BLOCK		1023	/* hashtable for relations */
@@ -93,7 +93,7 @@ pool_resize_rels_hash(Pool *pool, int numnew)
   /* realloc hash table */
   pool->relhashmask = hashmask;
   solv_free(pool->relhashtbl);
-  pool->relhashtbl = hashtbl = solv_calloc(hashmask + 1, sizeof(Id));
+  pool->relhashtbl = hashtbl = allochashtable(hashmask, 1);
 
   /* rehash all rels into new hashtable */
   for (i = 1, rd = pool->rels + i; i < pool->nrels; i++, rd++)

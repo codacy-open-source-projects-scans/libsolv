@@ -34,6 +34,8 @@
 #include "knownid.h"
 #undef KNOWNID_INITIALIZE
 
+#define POOL_MAX_TMPSPACE_LEN	0x1000000
+
 /* create pool */
 Pool *
 pool_create(void)
@@ -111,10 +113,7 @@ pool_free(Pool *pool)
   queue_free(&pool->lazywhatprovidesq);
   for (i = 0; i < POOL_TMPSPACEBUF; i++)
     solv_free(pool->tmpspace.buf[i]);
-  for (i = 0; i < pool->nlanguages; i++)
-    free((char *)pool->languages[i]);
-  solv_free((void *)pool->languages);
-  solv_free(pool->languagecache);
+  pool_set_languages(pool, 0, 0);
   solv_free(pool->errstr);
   solv_free(pool->rootdir);
   solv_free(pool->nonstd_ids);
@@ -267,7 +266,7 @@ pool_add_solvable_block(Pool *pool, int count)
   Id nsolvables = pool->nsolvables;
   if (!count)
     return nsolvables;
-  if (count < 0 || count >= SOLV_MAX_BLKLEN)
+  if (count < 0 || count >= SOLV_MAX_INDEX)
     solv_ovfl("solvable count overflow");
   pool->solvables = solv_extend(pool->solvables, pool->nsolvables, count, sizeof(Solvable), SOLVABLE_BLOCK);
   memset(pool->solvables + nsolvables, 0, sizeof(Solvable) * count);
@@ -427,52 +426,14 @@ pool_clear_pos(Pool *pool)
   memset(&pool->pos, 0, sizeof(pool->pos));
 }
 
-void
-pool_set_languages(Pool *pool, const char **languages, int nlanguages)
-{
-  int i;
-
-  pool->languagecache = solv_free(pool->languagecache);
-  pool->languagecacheother = 0;
-  for (i = 0; i < pool->nlanguages; i++)
-    free((char *)pool->languages[i]);
-  pool->languages = solv_free((void *)pool->languages);
-  pool->nlanguages = nlanguages;
-  if (!nlanguages)
-    return;
-  pool->languages = solv_calloc(nlanguages, sizeof(const char **));
-  for (i = 0; i < pool->nlanguages; i++)
-    pool->languages[i] = solv_strdup(languages[i]);
-}
-
-Id
-pool_id2langid(Pool *pool, Id id, const char *lang, int create)
-{
-  const char *n;
-  char buf[256], *p;
-  int l;
-
-  if (!lang || !*lang)
-    return id;
-  n = pool_id2str(pool, id);
-  l = strlen(n) + strlen(lang) + 2;
-  if (l > sizeof(buf))
-    p = solv_malloc(strlen(n) + strlen(lang) + 2);
-  else
-    p = buf;
-  sprintf(p, "%s:%s", n, lang);
-  id = pool_str2id(pool, p, create);
-  if (p != buf)
-    free(p);
-  return id;
-}
-
 char *
 pool_alloctmpspace(Pool *pool, int len)
 {
   int n = pool->tmpspace.n;
-  if (!len)
+  if (len <= 0)
     return 0;
+  if (len >= POOL_MAX_TMPSPACE_LEN)
+    solv_ovfl("tmpspace size overflow");
   if (len > pool->tmpspace.len[n])
     {
       pool->tmpspace.buf[n] = solv_realloc(pool->tmpspace.buf[n], len + 32);
@@ -522,11 +483,13 @@ pool_freetmpspace(Pool *pool, const char *space)
 char *
 pool_tmpjoin(Pool *pool, const char *str1, const char *str2, const char *str3)
 {
-  int l1, l2, l3;
+  size_t l1, l2, l3;
   char *s, *str;
   l1 = str1 ? strlen(str1) : 0;
   l2 = str2 ? strlen(str2) : 0;
   l3 = str3 ? strlen(str3) : 0;
+  if (l1 >= POOL_MAX_TMPSPACE_LEN || l2 >= POOL_MAX_TMPSPACE_LEN || l3 >= POOL_MAX_TMPSPACE_LEN)
+    solv_ovfl("tmpspace size overflow");
   s = str = pool_alloctmpspace(pool, l1 + l2 + l3 + 1);
   if (l1)
     {
@@ -550,12 +513,14 @@ pool_tmpjoin(Pool *pool, const char *str1, const char *str2, const char *str3)
 char *
 pool_tmpappend(Pool *pool, const char *str1, const char *str2, const char *str3)
 {
-  int l1, l2, l3;
+  size_t l1, l2, l3;
   char *s, *str;
 
   l1 = str1 ? strlen(str1) : 0;
   l2 = str2 ? strlen(str2) : 0;
   l3 = str3 ? strlen(str3) : 0;
+  if (l1 >= POOL_MAX_TMPSPACE_LEN || l2 >= POOL_MAX_TMPSPACE_LEN || l3 >= POOL_MAX_TMPSPACE_LEN)
+    solv_ovfl("tmpspace size overflow");
   str = pool_alloctmpspace_free(pool, str1, l1 + l2 + l3 + 1);
   if (str)
     str1 = str;
@@ -586,8 +551,10 @@ const char *
 pool_bin2hex(Pool *pool, const unsigned char *buf, int len)
 {
   char *s;
-  if (!len)
+  if (len <= 0)
     return "";
+  if (len >= POOL_MAX_TMPSPACE_LEN / 2)
+    solv_ovfl("pool_bin2hex size overflow");
   s = pool_alloctmpspace(pool, 2 * len + 1);
   solv_bin2hex(buf, len, s);
   return s;
