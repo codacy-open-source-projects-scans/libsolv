@@ -160,6 +160,7 @@ static struct poolflags2str {
   { POOL_FLAG_ADDFILEPROVIDESFILTERED,      "addfileprovidesfiltered", 0 },
   { POOL_FLAG_NOWHATPROVIDESAUX,            "nowhatprovidesaux", 0 },
   { POOL_FLAG_WHATPROVIDESWITHDISABLED,     "whatprovideswithdisabled", 0 },
+  { POOL_FLAG_NOWHATPROVIDESSHRINK,         "nowhatprovidesshrink", 0 },
   { 0, 0, 0 }
 };
 
@@ -347,7 +348,7 @@ const char *
 testcase_repoid2str(Pool *pool, Id repoid)
 {
   Repo *repo = pool_id2repo(pool, repoid);
-  if (repo->name)
+  if (repo && repo->name)
     {
       char *r = pool_tmpjoin(pool, repo->name, 0, 0);
       char *rp;
@@ -661,10 +662,10 @@ testcase_job2str(Pool *pool, Id how, Id what)
     {
       Repo *repo = pool_id2repo(pool, what);
       selstr = " repo ";
-      if (!repo->name)
+      if (!repo || !repo->name)
 	{
           char buf[20];
-	  sprintf(buf, "#%d", repo->repoid);
+	  sprintf(buf, "#%d", repo ? repo->repoid : what);
 	  pkgstr = pool_tmpjoin(pool, buf, 0, 0);
 	}
       else
@@ -2199,7 +2200,13 @@ testcase_read(Pool *pool, FILE *fp, const char *testcase, Queue *job, char **res
           bufl += 512;
 	}
       if (!fgets(bufp, bufl - (bufp - buf), fp))
-	break;
+	{
+	  /* EOF reached. Process last line if we have anything in the buffer */
+	  if (bufp == buf)
+	    break;
+	  *bufp++ = '\n';	/* we made sure there are 16 bytes free */
+	  *bufp = 0;
+	}
       bufp = buf;
       l = strlen(buf);
       if (!l || buf[l - 1] != '\n')
@@ -2524,9 +2531,12 @@ testcase_read(Pool *pool, FILE *fp, const char *testcase, Queue *job, char **res
 	  else if (jobsel == SOLVER_SOLVABLE_REPO)
 	    {
 	      Repo *repo = pool_id2repo(pool, what);
-	      Solvable *s;
-	      FOR_REPO_SOLVABLES(repo, p, s)
-		MAPCLR(pool->considered, p);
+	      if (repo)
+		{
+		  Solvable *s;
+		  FOR_REPO_SOLVABLES(repo, p, s)
+		    MAPCLR(pool->considered, p);
+		}
 	    }
 	  FOR_JOB_SELECT(p, pp, jobsel, what)
 	    MAPCLR(pool->considered, p);

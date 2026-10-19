@@ -717,12 +717,18 @@ repo_add_solv(Repo *repo, FILE *fp, int flags)
   else
     {
       unsigned int pfsize = read_u32(&data);
-      char *prefix = solv_malloc(pfsize);
-      char *pp = prefix;
+      char *pp, *prefix;
       char *old_str = strsp;
       char *dest = strsp;
       int freesp = sizeid;
 
+      if (pfsize >= SOLV_MAX_INDEX)
+	{
+	  repodata_freedata(&data);
+	  return pool_error(pool, SOLV_ERROR_OVERFLOW, "overflow while expanding strings");
+	}
+      pp = prefix = solv_malloc(pfsize + 3);
+      prefix[pfsize] = prefix[pfsize + 1] = prefix[pfsize + 2] = 0;	/* catch buffer overruns */
       if (pfsize && fread(prefix, pfsize, 1, fp) != 1)
 	{
 	  solv_free(prefix);
@@ -734,7 +740,7 @@ repo_add_solv(Repo *repo, FILE *fp, int flags)
 	  int same = (unsigned char)*pp++;
 	  size_t len = strlen(pp) + 1;
 	  freesp -= same + len;
-	  if (freesp < 0)
+	  if (freesp < 0 || (same == 0 && len == 1 && pp - prefix >= pfsize))
 	    {
 	      solv_free(prefix);
 	      repodata_freedata(&data);
@@ -1481,10 +1487,10 @@ solv_read_userdata(FILE *fp, unsigned char **datap, int *lenp)
   unsigned int n;
   if (fread(d, sizeof(d), 1, fp) != 1)
     return SOLV_ERROR_EOF;
-  n = d[0] << 24 | d[1] << 16 | d[2] << 8 | d[3];
+  n = (unsigned int)d[0] << 24 | d[1] << 16 | d[2] << 8 | d[3];
   if (n != ('S' << 24 | 'O' << 16 | 'L' << 8 | 'V'))
     return SOLV_ERROR_NOT_SOLV;
-  n = d[4] << 24 | d[5] << 16 | d[6] << 8 | d[7];
+  n = (unsigned int)d[4] << 24 | d[5] << 16 | d[6] << 8 | d[7];
   switch(n)
     {
     case SOLV_VERSION_8:
@@ -1493,11 +1499,11 @@ solv_read_userdata(FILE *fp, unsigned char **datap, int *lenp)
     default:
       return SOLV_ERROR_UNSUPPORTED;
     }
-  n = d[32] << 24 | d[33] << 16 | d[34] << 8 | d[35];
+  n = (unsigned int)d[32] << 24 | d[33] << 16 | d[34] << 8 | d[35];
   if (!(n & SOLV_FLAG_USERDATA))
     n = 0;
   else
-    n = d[36] << 24 | d[37] << 16 | d[38] << 8 | d[39];
+    n = (unsigned int)d[36] << 24 | d[37] << 16 | d[38] << 8 | d[39];
   if (n >= 65536)
     return SOLV_ERROR_CORRUPT;
   if (n)

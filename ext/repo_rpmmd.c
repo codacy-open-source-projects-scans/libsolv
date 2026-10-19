@@ -400,7 +400,7 @@ adddep(Pool *pool, struct parsedata *pd, unsigned int olddeps, const char **atts
     k = 0;
   if (k)
     {
-      int l = strlen(k) + 1 + strlen(n) + 1;
+      size_t l = strlen(k) + 1 + strlen(n) + 1;
       char *space = solv_xmlparser_contentspace(&pd->xmlp, l);
       sprintf(space, "%s:%s", k, n);
       id = pool_str2id(pool, space, 1);
@@ -506,7 +506,7 @@ free_cshash(struct parsedata *pd)
 static inline Hashval
 hashkey(const unsigned char *key, int keyl)
 {
-  return key[0] << 24 | key[1] << 16 | key[2] << 8 | key[3];
+  return (unsigned int)key[0] << 24 | key[1] << 16 | key[2] << 8 | key[3];
 }
 
 static void
@@ -845,7 +845,7 @@ startElement(struct solv_xmlparser *xmlp, int state, const char *name, const cha
       break;
     case STATE_TIME:
       {
-        unsigned int ti;
+        unsigned long long ti;
         str = solv_xmlparser_find_attr("build", atts);
         if (str && (ti = strtoull(str, 0, 10)) != 0)
           repodata_set_num(pd->data, handle, SOLVABLE_BUILDTIME, ti);
@@ -859,7 +859,7 @@ startElement(struct solv_xmlparser *xmlp, int state, const char *name, const cha
       break;
     case STATE_HEADERRANGE:
       {
-        unsigned int end;
+        unsigned long long end;
         str = solv_xmlparser_find_attr("end", atts);
 	if (str && (end = strtoull(str, 0, 10)) != 0)
 	  repodata_set_num(pd->data, handle, SOLVABLE_HEADEREND, end);
@@ -897,7 +897,7 @@ startElement(struct solv_xmlparser *xmlp, int state, const char *name, const cha
 	      str = "/usr/src";
 	    else
 	      {
-		int l = strlen(str) + 2;
+		size_t l = strlen(str) + 2;
 		char *space = solv_xmlparser_contentspace(xmlp, l);
 		space[0] = '/';
 		memcpy(space + 1, str, l - 1);
